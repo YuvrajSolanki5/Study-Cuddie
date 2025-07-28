@@ -9,33 +9,34 @@ struct ContentView: View {
     @State private var sleepHours: Double = 7
     @State private var starRating = 0
     @State private var suggestionText = ""
+    @State private var inputError: String? = nil
+    @State private var isLoading = false
     
     let genders = ["Male", "Female", "Other"]
-    
-    
-    //design stuff. basically no actual function just design of app
+
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 30) {                    HStack {
-                        Spacer()
-                        Text("Study Cuddie")
-                        .font(.title.bold())
-                        Spacer()
-                    }
-                    .padding(.top)
+                VStack(spacing: 30) {
+                    Text("Study Cuddie")
+                        .font(.largeTitle.bold())
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top)
 
                     CardView(title: "Personal Info") {
                         TextField("Age", text: $age)
                             .keyboardType(.numberPad)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .onChange(of: age) {
+                                age = age.filter { $0.isNumber }
+                            }
                         
                         Picker("Gender", selection: $gender) {
                             ForEach(genders, id: \.self) { Text($0) }
                         }
                         .pickerStyle(SegmentedPickerStyle())
                     }
-                    //steppers in the your routine daily section
+
                     CardView(title: "Your Routine (Daily)") {
                         Stepper(value: $studyHours, in: 0...12, step: 0.1) {
                             Text("Study Hours: \(studyHours, specifier: "%.1f")")
@@ -49,16 +50,32 @@ struct ContentView: View {
                     }
 
                     Button(action: {
+                        // Clear old messages
+                        inputError = nil
+                        suggestionText = ""
+
+                        // Age validation
+                        guard let ageValue = Int(age), ageValue >= 10, ageValue <= 100 else {
+                            inputError = "Please enter a valid age between 10 and 100."
+                            return
+                        }
+
+                        // Begin loading
+                        isLoading = true
+
+                        // Calculate rating
                         starRating = Int(calculateRating(
                             ageString: age,
                             studyHoursDaily: studyHours,
                             extracurricularHoursWeekly: extracurricularHours,
                             sleepHoursDaily: sleepHours
                         ))
+
                         if starRating < 5 {
                             getGeminiSuggestions()
                         } else {
                             suggestionText = "Great job! You have an excellent work-life balance."
+                            isLoading = false
                         }
                     }) {
                         Text("Check Balance")
@@ -70,10 +87,28 @@ struct ContentView: View {
                     }
                     .padding(.horizontal)
 
+                    if let error = inputError {
+                        Text(error)
+                            .foregroundColor(.red)
+                            .font(.subheadline)
+                            .padding(.horizontal)
+                    }
+
+                    if isLoading {
+                        ProgressView("Getting suggestions...")
+                            .padding()
+                    }
+
                     if starRating > 0 || !suggestionText.isEmpty {
                         CardView(title: "Rating") {
-                            Text(String(repeating: "★", count: starRating))
-                                .font(.largeTitle)
+                            HStack {
+                                ForEach(0..<5) { index in
+                                    Image(systemName: index < starRating ? "star.fill" : "star")
+                                        .foregroundColor(.yellow)
+                                }
+                            }
+                            .font(.title)
+
                             if !suggestionText.isEmpty {
                                 Text(suggestionText)
                                     .padding(.top, 5)
@@ -84,21 +119,19 @@ struct ContentView: View {
                 }
                 .padding()
             }
-            .navigationBarTitleDisplayMode(.inline) // still needed for the toolbar
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if starRating > 0 {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        NavigationLink(destination: CalendarView()) {
-                            Image(systemName: "calendar")
-                                .imageScale(.large)
-                                .foregroundColor(.blue)
-                        }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    NavigationLink(destination: CalendarView()) {
+                        Image(systemName: "calendar")
+                            .imageScale(.large)
+                            .foregroundColor(.blue)
                     }
                 }
             }
         }
     }
-    
+
     @ViewBuilder
     func CardView<Content: View>(title: String, @ViewBuilder content: @escaping () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -113,9 +146,7 @@ struct ContentView: View {
         .shadow(color: .gray.opacity(0.2), radius: 5, x: 0, y: 3)
         .padding(.horizontal)
     }
-    
-    //gemini hook in. dosn't work on school wifi for some reason
-    //fix this
+
     func getGeminiSuggestions() {
         let prompt = """
         A student aged \(age), gender \(gender), studies for \(studyHours) hours, does \(extracurricularHours) hours of extracurriculars, and sleeps \(sleepHours) hours daily. Provide suggestions for improving their work-life balance.
@@ -140,23 +171,23 @@ struct ContentView: View {
                let text = parts.first?["text"] as? String {
                 DispatchQueue.main.async {
                     self.suggestionText = text
+                    self.isLoading = false
                 }
             } else {
                 DispatchQueue.main.async {
                     self.suggestionText = "Sorry, we couldn't get suggestions from Gemini."
+                    self.isLoading = false
                 }
             }
         }.resume()
     }
-    
-    //get dev to anaylse data
-    //logic for getting star rating
+
     struct IdealProfile {
         let idealStudyHours: Double
         let idealSleepHours: Double
         let idealExtracurricularHours: Double
     }
-    
+
     func calculateRating(ageString: String, studyHoursDaily: Double, extracurricularHoursWeekly: Double, sleepHoursDaily: Double) -> Double {
         guard let age = Double(ageString) else { return 0.0 }
         let ideal = getIdealProfile(for: age)
@@ -166,9 +197,7 @@ struct ContentView: View {
         let totalScore = (studyScore * 0.5) + (sleepScore * 0.3) + (extracurricularScore * 0.2)
         return max(0.0, min(totalScore * 5.0, 5.0))
     }
-    
-    
-    //ideal profiles for each age group. uses survey data and school recommendations for study
+
     func getIdealProfile(for age: Double) -> IdealProfile {
         switch age {
         case 14: return IdealProfile(idealStudyHours: 1.0, idealSleepHours: 9.0, idealExtracurricularHours: 0.6875)
@@ -178,22 +207,33 @@ struct ContentView: View {
         default: return IdealProfile(idealStudyHours: 1.5, idealSleepHours: 9.0, idealExtracurricularHours: 5.0)
         }
     }
-    
+
     func calculateBellCurveScore(value: Double, ideal: Double, width: Double) -> Double {
         let exponent = -pow(value - ideal, 2) / (2 * pow(width, 2))
         return exp(exponent)
     }
 }
 
-
 struct CalendarView: View {
+    @State private var selectedDate = Date()
+
     var body: some View {
-        Text("placeholder idk how to put a calendar here")
-            .font(.title)
-            .navigationTitle("Calendar")
-            .navigationBarTitleDisplayMode(.inline)
+        VStack(spacing: 20) {
+            Text("Select a Date")
+                .font(.title2.bold())
+
+            DatePicker("Calendar", selection: $selectedDate, displayedComponents: [.date])
+                .datePickerStyle(.graphical)
+                .padding()
+
+            Text("You selected: \(selectedDate.formatted(date: .long, time: .omitted))")
+                .padding()
+        }
+        .navigationTitle("Calendar")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
+
 
 #Preview {
     ContentView()
