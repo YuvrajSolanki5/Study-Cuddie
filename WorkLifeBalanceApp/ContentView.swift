@@ -11,59 +11,67 @@ struct ContentView: View {
     @State private var suggestionText = ""
     @State private var inputError: String? = nil
     @State private var isLoading = false
-    
+    @State private var showCalendarButton = false
+
     let genders = ["Male", "Female", "Other"]
 
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 30) {
-                    Text("Study Cuddie")
-                        .font(.largeTitle.bold())
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.top)
+                    HStack {
+                        Spacer()
+                        Text("Study Cuddie")
+                            .font(.custom("Revalia", size: 40))
+                            .foregroundColor(Color.black)
+                        Spacer()
+                    }
+                    .padding(.top)
 
                     CardView(title: "Personal Info") {
                         TextField("Age", text: $age)
                             .keyboardType(.numberPad)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .onChange(of: age) {
-                                age = age.filter { $0.isNumber }
+                            .onChange(of: age) { newValue, _ in
+                                age = newValue.filter { $0.isNumber }
                             }
-                        
+                            .foregroundColor(.black)
+
                         Picker("Gender", selection: $gender) {
                             ForEach(genders, id: \.self) { Text($0) }
                         }
                         .pickerStyle(SegmentedPickerStyle())
+                        .tint(.purple)
                     }
 
                     CardView(title: "Your Routine (Daily)") {
                         Stepper(value: $studyHours, in: 0...12, step: 0.1) {
                             Text("Study Hours: \(studyHours, specifier: "%.1f")")
+                                .foregroundColor(.black)
                         }
                         Stepper(value: $extracurricularHours, in: 0...12, step: 0.1) {
                             Text("Extracurriculars: \(extracurricularHours, specifier: "%.1f")")
+                                .foregroundColor(.black)
                         }
                         Stepper(value: $sleepHours, in: 0...12, step: 0.5) {
                             Text("Sleep: \(sleepHours, specifier: "%.1f")")
+                                .foregroundColor(.black)
                         }
                     }
 
                     Button(action: {
-                        // Clear old messages
                         inputError = nil
                         suggestionText = ""
+                        showCalendarButton = false
 
-                        // Age validation
-                        guard let ageValue = Int(age), ageValue >= 10, ageValue <= 100 else {
-                            inputError = "Please enter a valid age between 10 and 100."
+                        guard let ageValue = Int(age), (10...18).contains(ageValue) else {
+                            inputError = "Please enter a valid age between 10 and 18."
                             return
                         }
 
-                        // Begin loading
                         isLoading = true
+                        showCalendarButton = true
 
-                        // Calculate rating
                         starRating = Int(calculateRating(
                             ageString: age,
                             studyHoursDaily: studyHours,
@@ -79,11 +87,17 @@ struct ContentView: View {
                         }
                     }) {
                         Text("Check Balance")
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                            .background(Color.green)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
+                                .foregroundColor(.white)
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [Color.purple, Color.blue]),
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .cornerRadius(10)
                     }
                     .padding(.horizontal)
 
@@ -97,22 +111,23 @@ struct ContentView: View {
                     if isLoading {
                         ProgressView("Getting suggestions...")
                             .padding()
+                            .tint(.purple)
                     }
 
                     if starRating > 0 || !suggestionText.isEmpty {
                         CardView(title: "Rating") {
-                            HStack {
-                                ForEach(0..<5) { index in
-                                    Image(systemName: index < starRating ? "star.fill" : "star")
-                                        .foregroundColor(.yellow)
+                            VStack(spacing: 8) {
+                                Text(String(repeating: "★", count: starRating))
+                                    .font(.largeTitle)
+                                    .foregroundColor(.purple)
+                                Text("\(starRating) out of 5")
+                                    .font(.headline)
+                                    .foregroundColor(.purple.opacity(0.8))
+                                if !suggestionText.isEmpty {
+                                    Text(suggestionText)
+                                        .padding(.top, 5)
+                                        .foregroundColor(.gray)
                                 }
-                            }
-                            .font(.title)
-
-                            if !suggestionText.isEmpty {
-                                Text(suggestionText)
-                                    .padding(.top, 5)
-                                    .foregroundColor(.gray)
                             }
                         }
                     }
@@ -121,11 +136,13 @@ struct ContentView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink(destination: CalendarView()) {
-                        Image(systemName: "calendar")
-                            .imageScale(.large)
-                            .foregroundColor(.blue)
+                if showCalendarButton {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        NavigationLink(destination: CalendarView()) {
+                            Image(systemName: "calendar")
+                                .imageScale(.large)
+                                .foregroundColor(.purple)
+                        }
                     }
                 }
             }
@@ -151,32 +168,110 @@ struct ContentView: View {
         let prompt = """
         A student aged \(age), gender \(gender), studies for \(studyHours) hours, does \(extracurricularHours) hours of extracurriculars, and sleeps \(sleepHours) hours daily. Provide suggestions for improving their work-life balance.
         """
+
+        // 1. Read your Gemini API key from Info.plist
+        guard let apiKey = Bundle.main.object(forInfoDictionaryKey: "GEMINI_API_KEY") as? String,
+              !apiKey.isEmpty else {
+            DispatchQueue.main.async {
+                self.suggestionText = "Missing GEMINI_API_KEY in Info.plist."
+                self.isLoading = false
+            }
+            return
+        }
+
+        // 2. Build request
+        var components = URLComponents(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent")!
+        components.queryItems = [URLQueryItem(name: "key", value: apiKey)]
+
         let requestBody: [String: Any] = [
             "contents": [["parts": [["text": prompt]]]]
         ]
-        guard let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=AIzaSyBg7NG6l_Z3ryB3ouOH02MJ1IX3NR3tCMg"),
-              let httpBody = try? JSONSerialization.data(withJSONObject: requestBody) else { return }
+
+        guard let url = components.url,
+              let httpBody = try? JSONSerialization.data(withJSONObject: requestBody) else {
+            DispatchQueue.main.async {
+                self.suggestionText = "Failed to build Gemini request."
+                self.isLoading = false
+            }
+            return
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = httpBody
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
+        // 3. Send request
         URLSession.shared.dataTask(with: request) { data, response, error in
-            if let data = data,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let candidates = json["candidates"] as? [[String: Any]],
-               let content = candidates.first?["content"] as? [String: Any],
-               let parts = content["parts"] as? [[String: Any]],
-               let text = parts.first?["text"] as? String {
+            defer {
+                DispatchQueue.main.async { self.isLoading = false }
+            }
+
+            if let error = error {
+                print("🔴 Network error: \(error.localizedDescription)")
                 DispatchQueue.main.async {
-                    self.suggestionText = text
-                    self.isLoading = false
+                    self.suggestionText = "Network error: \(error.localizedDescription)"
                 }
-            } else {
+                return
+            }
+
+            guard let http = response as? HTTPURLResponse else {
+                print("🔴 No HTTPURLResponse")
                 DispatchQueue.main.async {
-                    self.suggestionText = "Sorry, we couldn't get suggestions from Gemini."
-                    self.isLoading = false
+                    self.suggestionText = "No HTTP response from Gemini."
+                }
+                return
+            }
+
+            print("🟡 HTTP status: \(http.statusCode)")
+
+            guard let data = data else {
+                print("🔴 Empty response body")
+                DispatchQueue.main.async {
+                    self.suggestionText = "Empty response from Gemini."
+                }
+                return
+            }
+
+            if http.statusCode >= 400 {
+                let bodyText = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+                print("🔴 Error body: \(bodyText)")
+                if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let err = dict["error"] as? [String: Any],
+                   let msg = err["message"] as? String {
+                    DispatchQueue.main.async {
+                        self.suggestionText = "Gemini error: \(msg)"
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self.suggestionText = "Gemini error (\(http.statusCode))."
+                    }
+                }
+                return
+            }
+
+            // Parse the success response
+            do {
+                let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                if let candidates = obj?["candidates"] as? [[String: Any]],
+                   let content = candidates.first?["content"] as? [String: Any],
+                   let parts = content["parts"] as? [[String: Any]],
+                   let text = parts.first?["text"] as? String {
+                    DispatchQueue.main.async {
+                        self.suggestionText = text
+                    }
+                } else {
+                    let raw = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+                    print("🟠 Unexpected success body: \(raw)")
+                    DispatchQueue.main.async {
+                        self.suggestionText = "Unexpected response from Gemini."
+                    }
+                }
+            } catch {
+                let raw = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+                print("🔴 JSON parse error: \(error)\nBody: \(raw)")
+                DispatchQueue.main.async {
+                    self.suggestionText = "Could not parse Gemini response."
                 }
             }
         }.resume()
@@ -192,9 +287,18 @@ struct ContentView: View {
         guard let age = Double(ageString) else { return 0.0 }
         let ideal = getIdealProfile(for: age)
         let studyScore = calculateBellCurveScore(value: studyHoursDaily, ideal: ideal.idealStudyHours, width: 2.0)
-        let sleepScore = calculateBellCurveScore(value: sleepHoursDaily, ideal: ideal.idealSleepHours, width: 1.5)
         let extracurricularScore = calculateBellCurveScore(value: extracurricularHoursWeekly, ideal: ideal.idealExtracurricularHours, width: 4.0)
-        let totalScore = (studyScore * 0.5) + (sleepScore * 0.3) + (extracurricularScore * 0.2)
+
+        let sleepDifference = sleepHoursDaily - ideal.idealSleepHours
+        let sleepScore: Double
+        if sleepDifference >= 0 {
+            sleepScore = calculateBellCurveScore(value: sleepHoursDaily, ideal: ideal.idealSleepHours, width: 1.5)
+        } else {
+            let penalty = pow(sleepDifference, 2)  // positive value, squared difference
+            sleepScore = max(0, 1.0 - penalty / 9.0) // 9 is arbitrary scale factor; tweak as needed
+        }
+
+        let totalScore = (studyScore * 0.4) + (sleepScore * 0.4) + (extracurricularScore * 0.2)
         return max(0.0, min(totalScore * 5.0, 5.0))
     }
 
@@ -233,7 +337,6 @@ struct CalendarView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 }
-
 
 #Preview {
     ContentView()
