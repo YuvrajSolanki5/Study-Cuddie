@@ -6,6 +6,7 @@
 // 24/07/2025 - v1
 // 28/07/2025 - v1.1
 // 29/07/2025 - v2
+// 30/07/2025 - v2.1
 
 // This code was thought of by DJ. Parker and Y. Solanki and implemented by the use of AI
 
@@ -22,12 +23,14 @@ struct ContentView: View {
     @State private var suggestionText = ""
     @State private var inputError: String? = nil
     @State private var isLoading = false
-    @State private var showCalendarButton = false
+    @State private var showCalendar = false
+    @FocusState private var isAgeFieldFocused: Bool
+    @State private var showCalendarView = false
 
     let genders = ["Male", "Female", "Other"]
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
                 VStack(spacing: 30) {
                     HStack {
@@ -43,8 +46,17 @@ struct ContentView: View {
                         TextField("Age", text: $age)
                             .keyboardType(.numberPad)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .onChange(of: age) { newValue, _ in
+                            .onChange(of: age) { newValue in
                                 age = newValue.filter { $0.isNumber }
+                            }
+                            .focused($isAgeFieldFocused)
+                            .toolbar {
+                                ToolbarItemGroup(placement: .keyboard) {
+                                    Spacer()
+                                    Button("Done") {
+                                        isAgeFieldFocused = false
+                                    }
+                                }
                             }
                             .foregroundColor(.black)
 
@@ -73,7 +85,7 @@ struct ContentView: View {
                     Button(action: {
                         inputError = nil
                         suggestionText = ""
-                        showCalendarButton = false
+                        showCalendar = false
 
                         guard let ageValue = Int(age), (10...18).contains(ageValue) else {
                             inputError = "Please enter a valid age between 10 and 18."
@@ -81,7 +93,7 @@ struct ContentView: View {
                         }
 
                         isLoading = true
-                        showCalendarButton = true
+                        showCalendar = true
 
                         starRating = Int(calculateRating(
                             ageString: age,
@@ -91,7 +103,7 @@ struct ContentView: View {
                         ))
 
                         if starRating < 5 {
-                            getGeminiSuggestions()
+                            suggestionText = "add getGeminiSuggestions() later this just for testing so i dont waste api"
                         } else {
                             suggestionText = "Great job! You have an excellent work-life balance."
                             isLoading = false
@@ -147,15 +159,18 @@ struct ContentView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if showCalendarButton {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        NavigationLink(destination: CalendarView()) {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if showCalendar {
+                        Button(action: {
+                            showCalendarView = true
+                        }) {
                             Image(systemName: "calendar")
-                                .imageScale(.large)
-                                .foregroundColor(.purple)
                         }
                     }
                 }
+            }
+            .navigationDestination(isPresented: $showCalendarView) {
+                CalendarPlannerView()
             }
         }
     }
@@ -177,7 +192,7 @@ struct ContentView: View {
 
     func getGeminiSuggestions() {
         let prompt = """
-        A student aged \(age), gender \(gender), studies for \(studyHours) hours, does \(extracurricularHours) hours of extracurriculars, and sleeps \(sleepHours) hours daily. Provide suggestions for improving their work-life balance on a concise manner.
+        A student aged \(age), gender \(gender), studies for \(studyHours) hours, does \(extracurricularHours) hours of extracurriculars, and sleeps \(sleepHours) hours daily. Provide suggestions for improving their work-life balance concisely.
         """
 
         guard let apiKey = Bundle.main.object(forInfoDictionaryKey: "GEMINI_API_KEY") as? String,
@@ -284,6 +299,8 @@ struct ContentView: View {
         }.resume()
     }
 
+    // MARK: - Rating Calculation
+
     struct IdealProfile {
         let idealStudyHours: Double
         let idealSleepHours: Double
@@ -325,7 +342,7 @@ struct ContentView: View {
     }
 }
 
-struct CalendarView: View {
+struct CalendarViewInline: View {
     @State private var selectedDate = Date()
 
     var body: some View {
@@ -340,8 +357,71 @@ struct CalendarView: View {
             Text("You selected: \(selectedDate.formatted(date: .long, time: .omitted))")
                 .padding()
         }
-        .navigationTitle("Calendar")
-        .navigationBarTitleDisplayMode(.inline)
+        .padding()
+        .background(Color.white)
+        .cornerRadius(16)
+        .shadow(radius: 5)
+        .padding()
+    }
+}
+
+struct CalendarPlannerView: View {
+    @State private var studyBlocks: [Date] = []
+    @State private var selectedDate = Date()
+
+    var body: some View {
+        VStack {
+            DatePicker("Pick a Day", selection: $selectedDate, displayedComponents: [.date])
+                .datePickerStyle(GraphicalDatePickerStyle())
+                .padding()
+
+            List {
+                ForEach(timeSlots(for: selectedDate), id: \.self) { time in
+                    HStack {
+                        Text(formattedTime(time))
+                        Spacer()
+                        if studyBlocks.contains(time) {
+                            Image(systemName: "checkmark.square.fill")
+                                .foregroundColor(.green)
+                        } else {
+                            Image(systemName: "square")
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        toggleBlock(for: time)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Study Planner")
+    }
+
+    func timeSlots(for date: Date) -> [Date] {
+        var slots: [Date] = []
+        let calendar = Calendar.current
+        let startHour = 6
+        let endHour = 22
+        for hour in startHour..<endHour {
+            if let date = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: date) {
+                slots.append(date)
+            }
+        }
+        return slots
+    }
+
+    func toggleBlock(for time: Date) {
+        if let index = studyBlocks.firstIndex(where: { Calendar.current.isDate($0, equalTo: time, toGranularity: .hour) }) {
+            studyBlocks.remove(at: index)
+        } else {
+            studyBlocks.append(time)
+        }
+    }
+
+    func formattedTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h a"
+        return formatter.string(from: date)
     }
 }
 
