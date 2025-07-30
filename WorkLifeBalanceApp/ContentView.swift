@@ -1,3 +1,14 @@
+// Made by Yuvraj Solanki, Daniel J. Parker
+// Created 24/07/2025
+// A simple app which allows you input your study hours and extra-curricular hours
+// Inputs: Study hours, age, gender, extra-curricular hours, sleephours
+// Outputs: star rating, suggestion text
+// 24/07/2025 - v1
+// 28/07/2025 - v1.1
+// 29/07/2025 - v2
+
+// This code was thought of by DJ. Parker and Y. Solanki and implemented by the use of AI
+
 import SwiftUI
 import Foundation
 
@@ -87,17 +98,17 @@ struct ContentView: View {
                         }
                     }) {
                         Text("Check Balance")
-                                .foregroundColor(.white)
-                                .padding()
-                                .frame(maxWidth: .infinity)
-                                .background(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [Color.purple, Color.blue]),
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
+                            .foregroundColor(.white)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [Color.purple, Color.indigo]),
+                                    startPoint: .leading,
+                                    endPoint: .trailing
                                 )
-                                .cornerRadius(10)
+                            )
+                            .cornerRadius(10)
                     }
                     .padding(.horizontal)
 
@@ -166,10 +177,9 @@ struct ContentView: View {
 
     func getGeminiSuggestions() {
         let prompt = """
-        A student aged \(age), gender \(gender), studies for \(studyHours) hours, does \(extracurricularHours) hours of extracurriculars, and sleeps \(sleepHours) hours daily. Provide suggestions for improving their work-life balance.
+        A student aged \(age), gender \(gender), studies for \(studyHours) hours, does \(extracurricularHours) hours of extracurriculars, and sleeps \(sleepHours) hours daily. Provide suggestions for improving their work-life balance on a concise manner.
         """
 
-        // 1. Read your Gemini API key from Info.plist
         guard let apiKey = Bundle.main.object(forInfoDictionaryKey: "GEMINI_API_KEY") as? String,
               !apiKey.isEmpty else {
             DispatchQueue.main.async {
@@ -179,8 +189,7 @@ struct ContentView: View {
             return
         }
 
-        // 2. Build request
-        var components = URLComponents(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent")!
+        var components = URLComponents(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent")!
         components.queryItems = [URLQueryItem(name: "key", value: apiKey)]
 
         let requestBody: [String: Any] = [
@@ -201,7 +210,6 @@ struct ContentView: View {
         request.httpBody = httpBody
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // 3. Send request
         URLSession.shared.dataTask(with: request) { data, response, error in
             defer {
                 DispatchQueue.main.async { self.isLoading = false }
@@ -250,7 +258,6 @@ struct ContentView: View {
                 return
             }
 
-            // Parse the success response
             do {
                 let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
                 if let candidates = obj?["candidates"] as? [[String: Any]],
@@ -294,8 +301,8 @@ struct ContentView: View {
         if sleepDifference >= 0 {
             sleepScore = calculateBellCurveScore(value: sleepHoursDaily, ideal: ideal.idealSleepHours, width: 1.5)
         } else {
-            let penalty = pow(sleepDifference, 2)  // positive value, squared difference
-            sleepScore = max(0, 1.0 - penalty / 9.0) // 9 is arbitrary scale factor; tweak as needed
+            let penalty = pow(sleepDifference, 2)
+            sleepScore = max(0, 1.0 - penalty / 9.0)
         }
 
         let totalScore = (studyScore * 0.4) + (sleepScore * 0.4) + (extracurricularScore * 0.2)
