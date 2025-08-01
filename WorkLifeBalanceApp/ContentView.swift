@@ -7,6 +7,9 @@
 // 28/07/2025 - v1.1
 // 29/07/2025 - v2
 // 30/07/2025 - v2.1
+// 31/07/2025 - v3
+// 31/07/2025 - v3.1
+// 01/08/2025 - v3.2 Added Clear button
 
 // This code was thought of by DJ. Parker and Y. Solanki and implemented by the use of AI
 
@@ -166,6 +169,16 @@ struct ContentView: View {
                         }) {
                             Image(systemName: "calendar")
                         }
+                        .foregroundColor(.purple)
+                    }
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if starRating > 0 || !suggestionText.isEmpty {
+                        Button("Clear") {
+                            resetAll()
+                        }
+                        .foregroundColor(.purple)
                     }
                 }
             }
@@ -188,6 +201,20 @@ struct ContentView: View {
         .cornerRadius(16)
         .shadow(color: .gray.opacity(0.2), radius: 5, x: 0, y: 3)
         .padding(.horizontal)
+    }
+
+    private func resetAll() {
+        age = ""
+        gender = "Male"
+        studyHours = 1
+        extracurricularHours = 0.5
+        sleepHours = 7
+        starRating = 0
+        suggestionText = ""
+        inputError = nil
+        isLoading = false
+        showCalendar = false
+        showCalendarView = false
     }
 
     func getGeminiSuggestions() {
@@ -299,8 +326,6 @@ struct ContentView: View {
         }.resume()
     }
 
-    // MARK: - Rating Calculation
-
     struct IdealProfile {
         let idealStudyHours: Double
         let idealSleepHours: Double
@@ -342,86 +367,438 @@ struct ContentView: View {
     }
 }
 
-struct CalendarViewInline: View {
+struct CalendarPlannerView: View {
+    @State private var studyBlocks: [TimeBlock] = []
     @State private var selectedDate = Date()
+    @State private var selectedSubject: Subject = Subject.defaultSubjects.first!
+    @State private var showAddBlock = false
+    @State private var editingBlock: TimeBlock? = nil
+    @State private var subjects: [Subject] = Subject.defaultSubjects
+    @State private var showManageSubjects = false
+
+    private let startHour = 6
+    private let endHour = 22
+    private let cellWidth: CGFloat = 60
+    private let rowHeight: CGFloat = 40
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Select a Date")
-                .font(.title2.bold())
+        NavigationStack {
+            VStack {
+                DatePicker("Pick a Day", selection: $selectedDate, displayedComponents: [.date])
+                    .datePickerStyle(GraphicalDatePickerStyle())
+                    .padding()
+                HStack {
+                    Picker("Subject", selection: $selectedSubject) {
+                        ForEach(subjects) { subject in
+                            Text(subject.name).tag(subject)
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
 
-            DatePicker("Calendar", selection: $selectedDate, displayedComponents: [.date])
-                .datePickerStyle(.graphical)
-                .padding()
+                    Circle()
+                        .fill(selectedSubject.color)
+                        .frame(width: 24, height: 24)
 
-            Text("You selected: \(selectedDate.formatted(date: .long, time: .omitted))")
+                    Spacer()
+
+                    Button {
+                        showManageSubjects = true
+                    } label: {
+                        Image(systemName: "pencil.circle")
+                    }
+                    .sheet(isPresented: $showManageSubjects) {
+                        ManageSubjectsView(
+                            subjects: $subjects,
+                            selectedSubject: $selectedSubject
+                        )
+                    }
+                }
+                .padding(.horizontal)
+
+                ScrollView([.vertical, .horizontal], showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 1) {
+                            Text("")
+                                .frame(width: 50)
+                            ForEach(startHour..<endHour, id: \.self) { hour in
+                                Text("\(hour):00")
+                                    .font(.caption)
+                                    .frame(width: cellWidth, alignment: .leading)
+                                    .padding(.leading, 1)
+                            }
+                        }
+                        .background(Color(.systemGray6))
+
+                        HStack(spacing: 1) {
+                            Text(selectedDate.formatted(date: .abbreviated, time: .omitted))
+                                .frame(width: 50)
+                                .font(.caption)
+                                .padding(.vertical, 4)
+                                .background(Color(.systemGray6))
+
+                            ZStack(alignment: .topLeading) {
+                                HStack(spacing: 1) {
+                                    ForEach(startHour..<endHour, id: \.self) { _ in
+                                        Rectangle()
+                                            .stroke(Color(.systemGray4), lineWidth: 0.5)
+                                            .frame(width: cellWidth, height: rowHeight)
+                                            .frame(width: cellWidth, height: rowHeight)
+                                    }
+                                }
+
+                                ForEach(studyBlocks) { block in
+                                    if Calendar.current.isDate(block.date, inSameDayAs: selectedDate) {
+                                        BlockView(block: block, cellWidth: cellWidth, rowHeight: rowHeight)
+                                            .offset(x: CGFloat(block.startHour - startHour) * cellWidth)
+                                            .onTapGesture {
+                                                editingBlock = block
+                                            }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+
+                Button(action: { showAddBlock = true }) {
+                    Label("Add Study Block", systemImage: "plus.circle.fill")
+                        .font(.headline)
+                }
                 .padding()
+                .sheet(isPresented: $showAddBlock) {
+                    AddEditBlockView(
+                        date: selectedDate,
+                        subjects: subjects,
+                        blockToEdit: nil,
+                        onSave: addOrUpdateBlock,
+                        onDelete: nil
+                    )
+                }
+                .sheet(item: $editingBlock) { block in
+                    AddEditBlockView(
+                        date: selectedDate,
+                        subjects: subjects,
+                        blockToEdit: block,
+                        onSave: addOrUpdateBlock,
+                        onDelete: deleteBlock
+                    )
+                }
+
+                SummaryView(blocks: studyBlocks.filter { Calendar.current.isDate($0.date, inSameDayAs: selectedDate) })
+                    .padding()
+            }
+            .navigationTitle("Study Planner")
         }
-        .padding()
-        .background(Color.white)
-        .cornerRadius(16)
-        .shadow(radius: 5)
-        .padding()
+    }
+
+    private func addOrUpdateBlock(_ block: TimeBlock) {
+        if let index = studyBlocks.firstIndex(where: { $0.id == block.id }) {
+            studyBlocks[index] = block
+        } else {
+            studyBlocks.append(block)
+        }
+    }
+
+    private func deleteBlock(_ block: TimeBlock) {
+        studyBlocks.removeAll { $0.id == block.id }
     }
 }
 
-struct CalendarPlannerView: View {
-    @State private var studyBlocks: [Date] = []
-    @State private var selectedDate = Date()
+
+struct Subject: Identifiable, Hashable {
+    let id = UUID()
+    var name: String
+    var color: Color
+
+    static let defaultSubjects: [Subject] = [
+        Subject(name: "Methods", color: .red),
+        Subject(name: "English", color: .green),
+        Subject(name: "Science", color: .purple),
+        Subject(name: "Art", color: .yellow),
+        Subject(name: "Languages", color: .blue)
+    ]
+}
+
+struct TimeBlock: Identifiable, Equatable {
+    let id: UUID
+    let date: Date
+    let startHour: Int
+    let durationHours: Int
+    let subject: Subject
+}
+
+
+struct BlockView: View {
+    let block: TimeBlock
+    let cellWidth: CGFloat
+    let rowHeight: CGFloat
 
     var body: some View {
-        VStack {
-            DatePicker("Pick a Day", selection: $selectedDate, displayedComponents: [.date])
-                .datePickerStyle(GraphicalDatePickerStyle())
-                .padding()
+        let width = CGFloat(block.durationHours) * cellWidth
+        VStack(spacing: 0) {
+            Text(block.subject.name)
+                .font(.caption2)
+                .bold()
+                .foregroundColor(.white)
+                .padding(.horizontal, 2)
+                .padding(.vertical, 1)
+            Spacer()
+        }
+        .frame(width: width, height: rowHeight, alignment: .topLeading)
+        .background(block.subject.color.opacity(0.8))
+        .cornerRadius(4)
+    }
+}
 
-            List {
-                ForEach(timeSlots(for: selectedDate), id: \.self) { time in
-                    HStack {
-                        Text(formattedTime(time))
-                        Spacer()
-                        if studyBlocks.contains(time) {
-                            Image(systemName: "checkmark.square.fill")
-                                .foregroundColor(.green)
-                        } else {
-                            Image(systemName: "square")
-                        }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        toggleBlock(for: time)
-                    }
+struct SummaryView: View {
+    let blocks: [TimeBlock]
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Summary")
+                .font(.headline)
+            ForEach(subjectTotals()) { entry in
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(entry.subject.color)
+                        .frame(width: 12, height: 12)
+                    Text("\(entry.subject.name): \(entry.hours) hr(s)")
+                        .font(.subheadline)
                 }
             }
         }
-        .navigationTitle("Study Planner")
     }
 
-    func timeSlots(for date: Date) -> [Date] {
-        var slots: [Date] = []
-        let calendar = Calendar.current
-        let startHour = 6
-        let endHour = 22
-        for hour in startHour..<endHour {
-            if let date = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: date) {
-                slots.append(date)
+    private func subjectTotals() -> [SubjectTotal] {
+        var dict: [Subject: Int] = [:]
+        for block in blocks {
+            dict[block.subject, default: 0] += block.durationHours
+        }
+        return dict.map { SubjectTotal(subject: $0.key, hours: $0.value) }
+    }
+}
+
+struct SubjectTotal: Identifiable {
+    var id: Subject.ID { subject.id }
+    let subject: Subject
+    let hours: Int
+}
+
+struct AddEditBlockView: View {
+    let date: Date
+    let subjects: [Subject]
+    @State private var startHour: Int
+    @State private var duration: Int
+    @State private var subject: Subject
+    private let blockID: UUID?
+
+    var onSave: (TimeBlock) -> Void
+    var onDelete: ((TimeBlock) -> Void)?
+    @Environment(\.presentationMode) var presentation
+
+    init(date: Date, subjects: [Subject], blockToEdit: TimeBlock?, onSave: @escaping (TimeBlock) -> Void, onDelete: ((TimeBlock) -> Void)?) {
+        self.date = date
+        self.subjects = subjects
+        if let block = blockToEdit {
+            _startHour = State(initialValue: block.startHour)
+            _duration = State(initialValue: block.durationHours)
+            _subject = State(initialValue: block.subject)
+            blockID = block.id
+        } else {
+            _startHour = State(initialValue: 6)
+            _duration = State(initialValue: 1)
+            _subject = State(initialValue: subjects.first!)
+            blockID = nil
+        }
+        self.onSave = onSave
+        self.onDelete = onDelete
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Picker("Subject", selection: $subject) {
+                    ForEach(subjects) { subj in Text(subj.name).tag(subj) }
+                }
+                Stepper("Start Hour: \(startHour):00", value: $startHour, in: 6...21)
+                Stepper("Duration: \(duration) hr", value: $duration, in: 1...6)
+                if let onDelete = onDelete, let id = blockID {
+                    Section {
+                        Button(role: .destructive) {
+                            onDelete(TimeBlock(id: id, date: dateAtMidnight(date), startHour: startHour, durationHours: duration, subject: subject))
+                            presentation.wrappedValue.dismiss()
+                        } label: { Text("Delete Block") }
+                    }
+                }
+            }
+            .navigationTitle(blockID == nil ? "New Study Block" : "Edit Study Block")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let newBlock = TimeBlock(id: blockID ?? UUID(), date: dateAtMidnight(date), startHour: startHour, durationHours: duration, subject: subject)
+                        onSave(newBlock)
+                        presentation.wrappedValue.dismiss()
+                    }
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { presentation.wrappedValue.dismiss() }
+                }
             }
         }
-        return slots
     }
 
-    func toggleBlock(for time: Date) {
-        if let index = studyBlocks.firstIndex(where: { Calendar.current.isDate($0, equalTo: time, toGranularity: .hour) }) {
-            studyBlocks.remove(at: index)
-        } else {
-            studyBlocks.append(time)
+    private func dateAtMidnight(_ date: Date) -> Date {
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.year, .month, .day], from: date)
+        return cal.date(from: comps) ?? date
+    }
+}
+
+struct ManageSubjectsView: View {
+    @Binding var subjects: [Subject]
+    @Binding var selectedSubject: Subject
+    @State private var showAddSubject = false
+    @State private var subjectToEdit: Subject? = nil
+    @Environment(\.presentationMode) var presentation
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(subjects) { subj in
+                    HStack {
+                        Circle().fill(subj.color).frame(width: 16, height: 16)
+                        Text(subj.name)
+                        Spacer()
+                        if subj == selectedSubject { Image(systemName: "checkmark") }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedSubject = subj
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button {
+                            subjectToEdit = subj
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        .tint(.blue)
+                    }
+                }
+                .onDelete { idx in
+                    subjects.remove(atOffsets: idx)
+                }
+            }
+            .navigationTitle("Manage Subjects")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") { showAddSubject = true }
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { presentation.wrappedValue.dismiss() }
+                }
+            }
+            .sheet(isPresented: $showAddSubject) {
+                AddSubjectView(subjects: $subjects, selectedSubject: $selectedSubject)
+            }
+            .sheet(item: $subjectToEdit) { subj in
+                EditSubjectView(
+                    subject: subj,
+                    onSave: { updated in
+                        if let idx = subjects.firstIndex(where: { $0.id == subj.id }) {
+                            subjects[idx] = updated
+                            if selectedSubject.id == subj.id {
+                                selectedSubject = updated
+                            }
+                        }
+                    }
+                )
+            }
         }
     }
+}
 
-    func formattedTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h a"
-        return formatter.string(from: date)
+struct AddSubjectView: View {
+    @Binding var subjects: [Subject]
+    @Binding var selectedSubject: Subject
+    @State private var name = ""
+    @State private var color: Color = .blue
+    @Environment(\.presentationMode) var presentation
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Subject") {
+                    TextField("Name", text: $name)
+                    ColorPicker("Color", selection: $color)
+                }
+            }
+            .navigationTitle("New Subject")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let newSubj = Subject(name: name, color: color)
+                        subjects.append(newSubj)
+                        selectedSubject = newSubj
+                        presentation.wrappedValue.dismiss()
+                    }
+                    .disabled(name.isEmpty)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { presentation.wrappedValue.dismiss() }
+                }
+            }
+        }
+    }
+}
+
+struct EditSubjectView: View {
+    let subject: Subject
+    @State private var name: String
+    @State private var color: Color
+    var onSave: (Subject) -> Void
+    @Environment(\.presentationMode) var presentation
+
+    init(subject: Subject, onSave: @escaping (Subject) -> Void) {
+        self.subject = subject
+        _name = State(initialValue: subject.name)
+        _color = State(initialValue: subject.color)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Subject") {
+                    TextField("Name", text: $name)
+                    ColorPicker("Color", selection: $color)
+                }
+            }
+            .navigationTitle("Edit Subject")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        var updated = subject
+                        updated.name = name
+                        updated.color = color
+                        onSave(updated)
+                        presentation.wrappedValue.dismiss()
+                    }
+                    .disabled(name.isEmpty)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { presentation.wrappedValue.dismiss() }
+                }
+            }
+        }
+    }
+}
+
+//MARK: Previews
+
+struct CalendarPlannerView_Previews: PreviewProvider {
+    static var previews: some View {
+        CalendarPlannerView()
     }
 }
 
